@@ -13,6 +13,8 @@ from zoneinfo import ZoneInfo
 from src.agent.config import Settings
 from src.agent.tools.message_center import MessageCenterTool
 from src.agent.tools.ai_enricher import AIEnricher
+from src.agent.tools.service_health import ServiceHealthTool
+from src.agent.tools.service_health_enricher import ServiceHealthEnricher
 from src.connectors.adaptive_card_builder import AdaptiveCardBuilder
 from src.agent.tools.teams_connector import TeamsConnector
 
@@ -39,6 +41,8 @@ class LiveBriefOrchestrator:
     def __init__(self):
         self.mc: MessageCenterTool = None
         self.ai: AIEnricher = None
+        self.sh: ServiceHealthTool = None
+        self.sh_ai: ServiceHealthEnricher = None
         self.tm: TeamsConnector = None
         self.running = False
         self.processed_ids = set()  # Track processed items to avoid duplicates
@@ -60,6 +64,18 @@ class LiveBriefOrchestrator:
                 return False
             logger.info("Message Center connected")
 
+            # Initialize Service Health Tool
+            self.sh = ServiceHealthTool(
+                settings.azure_tenant_id,
+                settings.mc_app_id,
+                settings.mc_client_secret
+            )
+            if not await self.sh.connect():
+                logger.warning("Failed to connect to Service Health API - continuing with Message Center only")
+                self.sh = None
+            else:
+                logger.info("Service Health connected")
+
             # Initialize AI Enricher
             self.ai = AIEnricher(
                 endpoint=settings.azure_openai_endpoint,
@@ -68,6 +84,15 @@ class LiveBriefOrchestrator:
                 api_version=settings.azure_openai_api_version
             )
             logger.info("AI Enricher initialized")
+
+            if self.sh:
+                self.sh_ai = ServiceHealthEnricher(
+                    endpoint=settings.azure_openai_endpoint,
+                    api_key=settings.azure_openai_api_key,
+                    deployment=settings.azure_openai_deployment,
+                    api_version=settings.azure_openai_api_version
+                )
+                logger.info("Service Health Enricher initialized")
 
             # Initialize Teams Connector if configured
             if settings.teams_webhook_url:
@@ -98,15 +123,30 @@ class LiveBriefOrchestrator:
         while self.running:
             try:
                 # Fetch new items since last check
-                logger.debug("Polling for new Message Center items...")
-                raw_items = await self.mc.fetch_since()
+                logger.debug("Polling for new Message Center and Service Health items...")
+                mc_items = await self.mc.fetch_since()
+                sh_items = await self.sh.fetch_since() if self.sh else []
 
-                if raw_items:
-                    logger.info(f"Found {len(raw_items)} new item(s)")
+                if mc_items or sh_items:
+                    logger.info(
+                        f"Found {len(mc_items)} Message Center and {len(sh_items)} Service Health item(s)"
+                    )
                     retry_count = 0  # Reset retry counter on success
 
-                    for item in raw_items:
-                        await self._process_item(item, skip_if_processed=True, source="live")
+                    for item in mc_items:
+                        await self._process_item(
+                            item,
+                            item_source="message_center",
+                            skip_if_processed=True,
+                            run_source="live"
+                        )
+                    for item in sh_items:
+                        await self._process_item(
+                            item,
+                            item_source="service_health",
+                            skip_if_processed=True,
+                            run_source="live"
+                        )
                 else:
                     logger.debug("No new items at this check")
 
@@ -124,29 +164,43 @@ class LiveBriefOrchestrator:
                     logger.info(f"Retrying in {self.RETRY_DELAY_SECONDS}s...")
                     await asyncio.sleep(self.RETRY_DELAY_SECONDS)
 
-    async def _process_item(self, raw_item: dict, skip_if_processed: bool = True, source: str = "live"):
-        """Process a single raw Message Center item"""
+    async def _process_item(
+        self,
+        raw_item: dict,
+        item_source: str,
+        skip_if_processed: bool = True,
+        run_source: str = "live"
+    ):
+        """Process a single raw item"""
         try:
-            item_id = raw_item.get('id')
-            title = raw_item.get('title', 'Unknown')
+            item_id = raw_item.get("id")
+            title = raw_item.get("title", "Unknown")
+            dedupe_key = f"{item_source}:{item_id}"
 
             # Skip if already processed
-            if skip_if_processed and item_id in self.processed_ids:
-                logger.debug(f"Item already processed: {item_id}")
+            if skip_if_processed and dedupe_key in self.processed_ids:
+                logger.debug(f"Item already processed: {dedupe_key}")
                 return
 
-            logger.info(f"Processing {source} item: {title[:60]}")
+            logger.info(f"Processing {run_source} {item_source} item: {title[:60]}")
 
-            # Get report date for AI enrichment
-            report_date = datetime.fromisoformat(
-                raw_item.get('startDateTime', datetime.now(timezone.utc).isoformat()).replace('Z', '+00:00')
-            )
+            report_date = self._get_report_date(raw_item)
 
-            # AI Enrichment - analyze with system prompt
             logger.debug("Enriching with AI analysis...")
-            enriched = await self.ai.enrich_item(raw_item, report_date)
+            if item_source == "service_health":
+                if not self.sh_ai:
+                    logger.warning("Service Health enricher not initialized - skipping item")
+                    return
+                enriched = await self.sh_ai.enrich_item(raw_item, report_date)
+                if not enriched:
+                    return
+                self._apply_service_health_defaults(enriched, raw_item)
+            else:
+                enriched = await self.ai.enrich_item(raw_item, report_date)
+                if not enriched:
+                    return
+                self._apply_message_center_defaults(enriched)
 
-            # Build Adaptive Card for Teams
             logger.debug("Building Adaptive Card...")
             card = AdaptiveCardBuilder.build_card(enriched, include_link=True)
 
@@ -162,11 +216,49 @@ class LiveBriefOrchestrator:
                 logger.info(f"Ready (not sent to Teams): {title[:60]}")
 
             # Mark as processed
-            self.processed_ids.add(item_id)
-            logger.debug(f"Item processed: {item_id}")
+            self.processed_ids.add(dedupe_key)
+            logger.debug(f"Item processed: {dedupe_key}")
 
         except Exception as e:
             logger.error(f"Error processing item: {e}")
+
+    @staticmethod
+    def _get_report_date(raw_item: dict) -> datetime:
+        """Resolve report date for AI enrichment."""
+        value = raw_item.get("lastModifiedDateTime") or raw_item.get("startDateTime")
+        if not value:
+            return datetime.now(timezone.utc)
+        try:
+            return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except Exception:
+            return datetime.now(timezone.utc)
+
+    def _apply_alert_indicator(self, enriched: dict) -> None:
+        alert_url = settings.critical_alert_image_url
+        if not alert_url:
+            return
+        severity = str(enriched.get("severity", "")).lower()
+        if severity in {"critical", "high"}:
+            enriched.setdefault("alert_image_url", alert_url)
+
+    def _apply_message_center_defaults(self, enriched: dict) -> None:
+        enriched.setdefault("source", "message_center")
+        enriched.setdefault("source_label", "Message Center")
+        self._apply_alert_indicator(enriched)
+
+    def _apply_service_health_defaults(self, enriched: dict, raw_item: dict) -> None:
+        enriched.setdefault("source", "service_health")
+        enriched.setdefault("source_label", "Service Health")
+        enriched.setdefault("issue_id", raw_item.get("id"))
+        enriched.setdefault("published", raw_item.get("startDateTime"))
+        enriched.setdefault("last_updated", raw_item.get("lastModifiedDateTime"))
+        if not enriched.get("affected_services"):
+            impacted = raw_item.get("impactedServices") or raw_item.get("affectedServices")
+            if impacted:
+                enriched["affected_services"] = impacted
+        if not enriched.get("link"):
+            enriched["link"] = settings.service_health_portal_url
+        self._apply_alert_indicator(enriched)
 
     def _get_timezone(self):
         """Resolve timezone from settings, fallback to UTC."""
@@ -219,34 +311,40 @@ class LiveBriefOrchestrator:
 
     async def _run_daily_brief(self):
         """Send a daily brief for the last 24 hours."""
-        if not self.mc:
-            logger.warning("Daily brief skipped: Message Center not initialized")
+        if not self.mc and not self.sh:
+            logger.warning("Daily brief skipped: Message Center and Service Health not initialized")
             return
 
         logger.info(f"Running daily brief for last {self.daily_brief_lookback_hours} hours")
-        try:
-            raw_items = await self.mc.fetch_recent(hours_back=self.daily_brief_lookback_hours)
-        except Exception as e:
-            logger.error(f"Daily brief fetch failed: {e}")
-            return
 
-        if not raw_items:
-            logger.info("Daily brief: no announcements in last 24 hours")
-            return
-
-        def _item_ts(raw_item: dict) -> datetime:
-            value = raw_item.get('lastModifiedDateTime') or raw_item.get('startDateTime')
-            if not value:
-                return datetime.min.replace(tzinfo=timezone.utc)
+        mc_items = []
+        sh_items = []
+        if self.mc:
             try:
-                return datetime.fromisoformat(value.replace('Z', '+00:00'))
-            except Exception:
-                return datetime.min.replace(tzinfo=timezone.utc)
+                mc_items = await self.mc.fetch_recent(hours_back=self.daily_brief_lookback_hours)
+            except Exception as e:
+                logger.error(f"Daily brief fetch failed for Message Center: {e}")
+        if self.sh:
+            try:
+                sh_items = await self.sh.fetch_recent(hours_back=self.daily_brief_lookback_hours)
+            except Exception as e:
+                logger.error(f"Daily brief fetch failed for Service Health: {e}")
 
-        raw_items.sort(key=_item_ts, reverse=True)
+        if not mc_items and not sh_items:
+            logger.info("Daily brief: no updates in last 24 hours")
+            return
 
-        for item in raw_items:
-            await self._process_item(item, skip_if_processed=False, source="daily")
+        combined = [("message_center", item) for item in mc_items]
+        combined.extend([("service_health", item) for item in sh_items])
+        combined.sort(key=lambda entry: self._get_report_date(entry[1]), reverse=True)
+
+        for item_source, item in combined:
+            await self._process_item(
+                item,
+                item_source=item_source,
+                skip_if_processed=False,
+                run_source="daily"
+            )
 
     async def close(self):
         """Clean up resources"""
@@ -256,6 +354,8 @@ class LiveBriefOrchestrator:
 
             if self.mc:
                 await self.mc.close()
+            if self.sh:
+                await self.sh.close()
             if self.tm:
                 await self.tm.close()
 

@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     teams_webhook_url: Optional[str] = os.getenv("TEAMS_WEBHOOK_URL")
     power_app_api_url: Optional[str] = os.getenv("POWER_APP_API_URL")
     logic_app_trigger_url: Optional[str] = os.getenv("LOGIC_APP_TRIGGER_URL")
+    service_health_portal_url: str = os.getenv(
+        "SERVICE_HEALTH_PORTAL_URL",
+        "https://admin.microsoft.com/Adminportal/Home#/servicehealth"
+    )
+    critical_alert_image_url: str = os.getenv("CRITICAL_ALERT_IMAGE_URL", "")
 
     # Scheduling
     daily_brief_time: str = os.getenv("DAILY_BRIEF_TIME", "09:00")

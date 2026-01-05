@@ -22,10 +22,20 @@ class AdaptiveCardBuilder:
     }
 
     SEVERITY_ICONS = {
-        "critical": "⚠️",
-        "high": "⚠️",
+        "critical": "🔴",
+        "high": "🟠",
         "important": "ℹ️",
         "normal": "📢"
+    }
+
+    SOURCE_LABELS = {
+        "message_center": "Message Center",
+        "service_health": "Service Health",
+    }
+
+    SOURCE_COLORS = {
+        "message_center": "accent",
+        "service_health": "attention",
     }
 
     @staticmethod
@@ -50,6 +60,50 @@ class AdaptiveCardBuilder:
             return None
 
     @staticmethod
+    def _truncate_text(text: str, max_length: int = 140) -> str:
+        """Truncate text to a max length for compact display."""
+        if not text:
+            return ""
+        if len(text) > max_length:
+            return text[:max_length] + "..."
+        return text
+
+    @staticmethod
+    def _build_factset(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Build a compact FactSet for service health context."""
+        facts = []
+        incident_id = item.get("issue_id") or item.get("incident_id")
+        if incident_id:
+            facts.append({"title": "Incident ID", "value": str(incident_id)})
+
+        status = item.get("status")
+        if status:
+            facts.append({"title": "Status", "value": str(status)})
+
+        affected = item.get("affected_services")
+        if affected:
+            if isinstance(affected, list):
+                value = ", ".join([str(a) for a in affected if a])
+            else:
+                value = str(affected)
+            value = AdaptiveCardBuilder._truncate_text(value)
+            facts.append({"title": "Affected services", "value": value})
+
+        last_updated = item.get("last_updated")
+        if last_updated:
+            formatted = AdaptiveCardBuilder._format_friendly_datetime(last_updated) or str(last_updated)
+            facts.append({"title": "Last updated", "value": formatted})
+
+        if not facts:
+            return None
+
+        return {
+            "type": "FactSet",
+            "facts": facts,
+            "spacing": "medium",
+        }
+
+    @staticmethod
     def build_card(item: Dict[str, Any], include_link: bool = True) -> Dict[str, Any]:
         """
         Build a single Adaptive Card from enriched item
@@ -66,6 +120,11 @@ class AdaptiveCardBuilder:
             bucket = item.get("bucket", "info")
             is_major = item.get("is_major_change", False)
             admin_impact = item.get("admin_impact", False)
+            source = item.get("source", "")
+            source_label = item.get("source_label") or AdaptiveCardBuilder.SOURCE_LABELS.get(source)
+            source_color = AdaptiveCardBuilder.SOURCE_COLORS.get(source, "accent")
+            is_critical = severity in ["critical", "high"]
+            alert_image_url = item.get("alert_image_url")
 
             # Determine color and icon
             color = AdaptiveCardBuilder.SEVERITY_COLORS.get(severity, "#6E8387")
@@ -79,7 +138,7 @@ class AdaptiveCardBuilder:
                     (c.get("text", "").lower() == "admin impact") if isinstance(c, dict) else str(c).lower() == "admin impact"
                     for c in chips
                 )
-            highlight = bool(is_major or admin_impact or has_admin_chip)
+            highlight = bool(is_major or admin_impact or has_admin_chip or is_critical)
             if isinstance(chips, list) and len(chips) > 0:
                 chip_text = " | ".join([c.get("text", c) if isinstance(c, dict) else str(c) for c in chips])
             else:
@@ -97,6 +156,47 @@ class AdaptiveCardBuilder:
                     item.get("message_id") or item.get("id")
                 )
 
+            icon_items = []
+            if alert_image_url:
+                icon_items.append({
+                    "type": "Image",
+                    "url": alert_image_url,
+                    "size": "Small",
+                    "altText": "Critical alert"
+                })
+            icon_items.append({
+                "type": "TextBlock",
+                "text": icon,
+                "size": "extraLarge",
+                "spacing": "none"
+            })
+
+            title_items = []
+            if source_label:
+                title_items.append({
+                    "type": "TextBlock",
+                    "text": source_label,
+                    "size": "small",
+                    "weight": "bolder",
+                    "color": source_color,
+                    "spacing": "none"
+                })
+            title_items.append({
+                "type": "TextBlock",
+                "text": item.get("title", "Microsoft 365 Update"),
+                "size": "large",
+                "weight": "bolder",
+                "wrap": True,
+                "spacing": "small"
+            })
+            title_items.append({
+                "type": "TextBlock",
+                "text": item.get("service", "Microsoft 365"),
+                "size": "small",
+                "isSubtle": True,
+                "spacing": "none"
+            })
+
             # Build the card
             card = {
                 "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
@@ -113,34 +213,11 @@ class AdaptiveCardBuilder:
                                 "columns": [
                                     {
                                         "width": "auto",
-                                        "items": [
-                                            {
-                                                "type": "TextBlock",
-                                                "text": icon,
-                                                "size": "extraLarge",
-                                                "spacing": "none"
-                                            }
-                                        ]
+                                        "items": icon_items
                                     },
                                     {
                                         "width": "stretch",
-                                        "items": [
-                                            {
-                                                "type": "TextBlock",
-                                                "text": item.get("title", "Microsoft 365 Update"),
-                                                "size": "large",
-                                                "weight": "bolder",
-                                                "wrap": True,
-                                                "spacing": "small"
-                                            },
-                                            {
-                                                "type": "TextBlock",
-                                                "text": item.get("service", "Microsoft 365"),
-                                                "size": "small",
-                                                "isSubtle": True,
-                                                "spacing": "none"
-                                            }
-                                        ]
+                                        "items": title_items
                                     },
                                     {
                                         "width": "auto",
@@ -173,6 +250,10 @@ class AdaptiveCardBuilder:
                     "spacing": "medium"
                 })
 
+            factset = AdaptiveCardBuilder._build_factset(item)
+            if factset:
+                card["body"].append(factset)
+
             # Add main content sections
             card["body"].append({
                 "type": "Container",
@@ -194,6 +275,38 @@ class AdaptiveCardBuilder:
                 content_container.append({
                     "type": "TextBlock",
                     "text": item.get("what", ""),
+                    "wrap": True,
+                    "spacing": "small"
+                })
+
+            impact_text = item.get("impact")
+            if impact_text:
+                content_container.append({
+                    "type": "TextBlock",
+                    "text": "**Impact**",
+                    "weight": "bolder",
+                    "size": "small",
+                    "spacing": "medium"
+                })
+                content_container.append({
+                    "type": "TextBlock",
+                    "text": impact_text,
+                    "wrap": True,
+                    "spacing": "small"
+                })
+
+            # Latest update
+            if item.get("latest_update"):
+                content_container.append({
+                    "type": "TextBlock",
+                    "text": "**Latest update**",
+                    "weight": "bolder",
+                    "size": "small",
+                    "spacing": "medium"
+                })
+                content_container.append({
+                    "type": "TextBlock",
+                    "text": item.get("latest_update", ""),
                     "wrap": True,
                     "spacing": "small"
                 })
@@ -223,8 +336,8 @@ class AdaptiveCardBuilder:
                     "size": "small",
                     "spacing": "medium"
                 })
-                
-                for action in actions[:3]:  # Limit to 3 actions
+                action_limit = 5 if source == "service_health" else 3
+                for action in actions[:action_limit]:
                     content_container.append({
                         "type": "TextBlock",
                         "text": f"• {action}",
@@ -263,9 +376,10 @@ class AdaptiveCardBuilder:
             published_raw = item.get("published")
             published_fmt = AdaptiveCardBuilder._format_friendly_datetime(published_raw)
             if published_fmt:
+                published_label = "Started" if source == "service_health" else "Published"
                 content_container.append({
                     "type": "TextBlock",
-                    "text": f"Published: {published_fmt}",
+                    "text": f"{published_label}: {published_fmt}",
                     "isSubtle": True,
                     "size": "small",
                     "wrap": True,
@@ -284,9 +398,10 @@ class AdaptiveCardBuilder:
 
             # Message Center link
             if include_link and link:
+                link_title = "View in Service Health" if source == "service_health" else "View in Message Center"
                 actions_list.append({
                     "type": "Action.OpenUrl",
-                    "title": "View in Message Center",
+                    "title": link_title,
                     "url": link
                 })
 
