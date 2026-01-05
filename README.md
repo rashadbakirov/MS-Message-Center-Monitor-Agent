@@ -11,6 +11,7 @@ Automatically monitor your Microsoft 365 Message Center, get AI-powered summarie
 - **Automated Monitoring** – Checks for new announcements every 6 hours (configurable)
 - **AI Summaries** – Uses Microsoft Foundry (Azure OpenAI) to create clear, actionable summaries
 - **Teams Integration** – Posts beautiful Adaptive Cards directly to your Teams channel
+- **Service Health Alerts** – Sends Microsoft 365 Service Health incidents alongside Message Center updates
 - **Smart Deduplication** – Never sends the same announcement twice
 - **Optional Notifications** – Get notified even when there's no news (or turn it off)
 
@@ -95,6 +96,8 @@ This gives the app permission to read your Message Center.
 4. Add Microsoft Graph permissions: `ServiceMessage.Read.All` and `ServiceHealth.Read.All`
 5. Create a client secret and copy it
 6. Save the App ID and Tenant ID
+
+These permissions also enable Service Health incident messages (no extra setup required).
 
 👉 **[Full setup guide](docs/SETUP.md#step-4-register-your-app-azure-app-registration-)**
 
