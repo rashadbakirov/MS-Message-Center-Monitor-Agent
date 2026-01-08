@@ -1,0 +1,47 @@
+name: Microsoft Message Center Monitor (Scheduled)
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache state
+        uses: actions/cache@v4
+        with:
+          path: data
+          key: brief-data-${{ github.ref }}-${{ github.run_id }}
+          restore-keys: |
+            brief-data-${{ github.ref }}-
+
+      - name: Install dependencies
+        run: python -m pip install --pre -r requirements.txt
+
+      - name: Dependency check
+        run: python -m pip check
+
+      - name: Run scheduled brief
+        run: python scripts/run_github_brief.py
+        env:
+          PYTHONPATH: .
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          MC_APP_ID: ${{ secrets.MC_APP_ID }}
+          MC_CLIENT_SECRET: ${{ secrets.MC_CLIENT_SECRET }}
+          AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+          AZURE_OPENAI_DEPLOYMENT: ${{ secrets.AZURE_OPENAI_DEPLOYMENT }}
+          AZURE_OPENAI_API_VERSION: ${{ secrets.AZURE_OPENAI_API_VERSION }}
+          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          DAILY_BRIEF_LOOKBACK_HOURS: "24"
+          NOTIFY_ON_EMPTY: "true"

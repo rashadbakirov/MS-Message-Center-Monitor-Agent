@@ -1,0 +1,202 @@
+# ============================================================================
+# PYTHON
+# ============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ============================================================================
+# VIRTUAL ENVIRONMENTS
+# ============================================================================
+venv/
+ENV/
+env/
+.venv
+venv*/
+
+# ============================================================================
+# IDE & EDITORS
+# ============================================================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.sublime-project
+*.sublime-workspace
+.DS_Store
+.code-workspace
+*.code-workspace
+
+# ============================================================================
+# INTERNAL DOCUMENTATION (Not for public release)
+# ============================================================================
+BEFORE_AFTER.md
+DOCUMENTATION_COMPLETE.md
+FINAL_SUMMARY.md
+QUICK_REFERENCE.md
+UPGRADE_SUMMARY.md
+
+# ============================================================================
+# ENVIRONMENT & SECRETS (CRITICAL - NEVER COMMIT SECRETS)
+# ============================================================================
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+.env.test
+
+# ============================================================================
+# TESTING
+# ============================================================================
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+.tox/
+.hypothesis/
+test-results.xml
+.nose*
+
+# ============================================================================
+# BUILD & ARTIFACTS
+# ============================================================================
+build/
+dist/
+*.whl
+*.tar.gz
+
+# ============================================================================
+# LOGGING & RUNTIME
+# ============================================================================
+logs/
+*.log
+*.log.*
+.log/
+
+# ============================================================================
+# STATE FILES & TEMPORARY DATA
+# ============================================================================
+# State files are runtime-generated and should not be in version control
+data/message_center_state.json
+data/*.json
+data/cache/
+cache/
+temp/
+tmp/
+*.tmp
+
+# ============================================================================
+# RUNTIME DATA (User-specific and deployment-specific)
+# ============================================================================
+.local/
+.cache/
+brief_history/
+reports/
+
+# ============================================================================
+# OS-SPECIFIC FILES
+# ============================================================================
+.DS_Store
+Thumbs.db
+Desktop.ini
+.Spotlight-V100
+.Trashes
+
+# ============================================================================
+# AZURE
+# ============================================================================
+.azure/
+local.settings.json
+*.azureignore
+
+# ============================================================================
+# DOCUMENTATION BUILDS
+# ============================================================================
+site/
+docs/_build/
+htmlcov/
+
+# ============================================================================
+# NODE (if applicable in future)
+# ============================================================================
+node_modules/
+package-lock.json
+yarn.lock
+
+# ============================================================================
+# PUBLICATION & INTERNAL DOCUMENTATION
+# (Not needed for end users - keep in docs/archive if you want to save locally)
+# ============================================================================
+docs/archive/
+REVIEW_*.md
+REVIEW_*.txt
+*_REVIEW_*.md
+*_REVIEW_*.txt
+PUBLICATION_*.md
+COMPLETION_*.md
+PROJECT_COMPLETION.md
+START_*.md
+DEPLOYMENT_CHECKLIST.md
+INSTALL.md
+QUICKSTART.md
+END_USER_EXPERIENCE.md
+DOCUMENTATION_MAP.md
+
+# ============================================================================
+# PROJECT SPECIFIC
+# ============================================================================
+# Test artifacts to exclude
+test_*.py
+test_*.json
+verify_*.py
+conftest.py.local
+
+# ============================================================================
+# IDE DEBUGGING
+# ============================================================================
+.vscode/launch.json
+.vscode/tasks.json
+.vscode/settings.local.json
+
+# ============================================================================
+# COMMENTS
+# ============================================================================
+# 
+# NOTE: .env.example IS committed - it shows required variables without secrets
+#
+# Files SHOULD be committed:
+#   - README.md, LICENSE, setup files
+#   - Source code in src/, scripts/
+#   - Configuration templates (.env.example)
+#   - Dockerfile, docker-compose.yml
+#   - GitHub workflow files (.github/workflows/)
+#
+# Files SHOULD NOT be committed:
+#   - .env (use .env.example instead)
+#   - Secrets, API keys, credentials
+#   - venv/ virtual environment
+#   - logs/, temp data
+#   - __pycache__, .pytest_cache/
+#
